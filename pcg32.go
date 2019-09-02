@@ -11,13 +11,9 @@ var randomBytes, _ = GenerateRandomBytes(8)
 var state = binary.BigEndian.Uint64(randomBytes)
 
 // GenerateRandomBytes returns securely generated random bytes.
-// It will return an error if the system's secure random
-// number generator fails to function correctly, in which
-// case the caller should not continue.
 func GenerateRandomBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
 	_, err := rand.Read(b)
-	// Note that err == nil only if we read len(b) bytes.
 	if err != nil {
 		return nil, err
 	}
@@ -27,9 +23,28 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 
 // PCG32 returns a random unsigned 32 bit integer using PCG.
 func PCG32() uint32 {
-	xorshifted := uint32((((state >> 18) ^ state) >> 27) & 0xffffffff)
-	rot := uint32(state >> 59)
-	state = (state*uint64(0x5851f42d4c957f2d) + inc) & uint64(0xffffffffffffffff)
+	oldstate := uint64(state)
+	state = (oldstate*uint64(0x5851f42d4c957f2d) + inc)
+	xorshifted := uint32(((oldstate >> 18) ^ oldstate) >> 27)
+	rot := uint32(oldstate >> 59)
+	return (xorshifted >> rot) | (xorshifted << (-rot & 31))
+}
 
-	return (xorshifted >> rot) | ((xorshifted << (-rot & 31)) & 0xffffffff)
+// PCG32Bounded returns a random unsigned 32 bit integer in the interval [0, bound) using PCG.
+func PCG32Bounded(bound uint32) uint32 {
+	bound64 := uint64(bound)
+	random32bits := uint64(PCG32())
+	multiresult := random32bits * bound64
+	leftover := uint32(multiresult)
+
+	if leftover < bound {
+		threshold := -bound % bound
+		for leftover < threshold {
+			random32bits = uint64(PCG32())
+			multiresult = random32bits * bound64
+			leftover = uint32(multiresult)
+		}
+	}
+
+	return uint32(multiresult >> 32)
 }
